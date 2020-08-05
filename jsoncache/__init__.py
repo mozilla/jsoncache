@@ -22,10 +22,10 @@ from google.cloud import storage
 
 # Only allow alpha-numeric and hyphens
 # for bucket names
-BUCKET_RE = re.compile("^[a_z-A-Z0-9]*$")
+BUCKET_RE = re.compile("^[a-zA-Z0-9\-]*$")
 
 # All s3 and gcs paths must be alphanumeric or hyphens
-PATH_RE = re.compile("^[a_z-A-Z0-9/]*$")
+PATH_RE = re.compile("^[a-zA-Z0-9\.\-_/]*$")
 
 # Only allow s3 and gcs cloud types
 CLOUD_TYPES = {
@@ -57,7 +57,7 @@ def context_timer(msg):
         end_load = time.time()
         load_time = end_load - start_load
         msg += f"  Load Time: {load_time} sec"
-        logger.info(msg)
+        logger.debug(msg)
 
 
 def s3_json_loader(bucket, path, region_name="us-west-2"):
@@ -124,18 +124,23 @@ class Timer:
         """
         Timer that accepts a TTL in seconds
         """
-        self._start = self._clock.time()
 
         self._ttl_incr = 0
-
         self._clock = clock
         self._expiry_time = 0
         self._ttl = ttl
 
+        self._start = self._clock.time()
+
     def has_expired(self):
         now = self._clock.time()
 
-        expired = now > self._start + (self._ttl_incr * self._ttl)
+        future = self._start + (self._ttl_incr * self._ttl)
+
+        expired = now > future
+        logger.debug(
+            f"Incr: {self._ttl_incr} Comparing time: {now} > {future} == {expired}"
+        )
 
         if expired:
             self._ttl_incr += 1
@@ -147,10 +152,10 @@ def refresh_thread(clock, ttl, refresh_queue):
     Loop forever checking the expiry time and pushing a message into
     the refresh_queue if a model should be reloaded
     """
+    t = Timer(clock, ttl)
     while True:
-        t = Timer(clock, ttl)
         if t.has_expired():
-            logger.info("Object expired - putting event onto refresh_queue")
+            logger.debug("Object expired - putting event onto refresh_queue")
             refresh_queue.put(True)
         time.sleep(1)
 
@@ -166,16 +171,16 @@ def result_thread(model_loader, refresh_queue, result_queue, transformer):
     while True:
         refresh_now = nonblock_dequeue(refresh_queue)
         if refresh_now is False:
-            logger.info("Refresh not required")
+            logger.debug("Refresh not required")
             time.sleep(1)
             continue
 
         result = model_loader()
-        logger.info("Model is loaded")
+        logger.debug("Model is loaded")
         if transformer is not None:
-            logger.info("Transform being applied")
+            logger.debug("Transform being applied")
             result = transformer(result)
-        logger.info("Final model added to result_queue")
+        logger.debug("Final model added to result_queue")
         result_queue.put(result)
 
 
@@ -201,7 +206,16 @@ class ThreadedObjectCache:
 
     """
 
-    def __init__(self, cloud_type, bucket, path, ttl, clock, transformer=None):
+    def __init__(
+        self,
+        cloud_type,
+        bucket,
+        path,
+        ttl,
+        clock=time,
+        transformer=None,
+        block_until_cached=False,
+    ):
 
         self._cloud_type = cloud_type
         self._bucket = bucket
@@ -209,6 +223,7 @@ class ThreadedObjectCache:
         self._expiry_time = 0
         self._clock = clock
         self._transformer = transformer
+        self._ttl = ttl
 
         # Setup a queue to put new JSON objects that are read in by
         # the background thread so that we don't have to wait on
@@ -236,9 +251,25 @@ class ThreadedObjectCache:
 
         self._result_thread = threading.Thread(
             target=result_thread,
-            args=(self.load_model, self._refresh_queue, self._result_queue),
+            args=(
+                self.load_model,
+                self._refresh_queue,
+                self._result_queue,
+                self._transformer,
+            ),
             daemon=True,
         )
+
+        self._update_cache_thread = threading.Thread(
+            target=self._dequeue_result, args=(), daemon=True
+        )
+
+        self._refresh_thread.start()
+        self._result_thread.start()
+        self._update_cache_thread.start()
+
+        if block_until_cached:
+            self.block_until_cached()
 
     def block_until_cached(self):
         """
@@ -255,14 +286,16 @@ class ThreadedObjectCache:
     def _dequeue_result(self):
         while True:
             result = nonblock_dequeue(self._result_queue)
-            if result is None:
-                logger.info("No new model for cache")
+            if result is False:
+                logger.debug("No new model for cache")
                 time.sleep(1)
                 continue
 
+            assert result is not None
             # We've dequeued a result - clobber the current instance
-            logger.info("Writing new model to cache")
+            logger.debug("Writing new model to cache")
             self._cached_result = result
+            time.sleep(1)
 
     def load_model(self):
         """
