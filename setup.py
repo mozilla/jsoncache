@@ -1,5 +1,8 @@
 from setuptools import find_packages, setup
 
+with open("README.md", "r") as fh:
+    long_description = fh.read()
+
 setup(
     name="mozilla-jsoncache",
     use_scm_version=False,
@@ -9,6 +12,7 @@ setup(
     include_package_data=True,
     packages=find_packages(exclude=["tests", "tests/*"]),
     description="JSON Cache Loader",
+    long_description=long_description,
     author="Mozilla Corporation",
     author_email="vng@mozilla.org",
     url="https://github.com/mozilla/jsoncache",
