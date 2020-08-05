@@ -35,11 +35,12 @@ You can optionally pass in a custom callable `transformer` that will
 apply the `transformer` function to the data before it's returned.
 Typical use cases might involve initializing a sklearn model.
 
-
 You can optionally pass in `block_until_cached`=True so that the
 constructor will block until a model is loaded successfully from the
 network.
 
+All background threads are marked as daemon threads so using this code
+won't cause your application to wait for thread death.
 
 ```
 Python 3.7.8 | packaged by conda-forge | (default, Jul 31 2020, 02:37:09)
