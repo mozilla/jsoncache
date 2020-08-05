@@ -211,7 +211,7 @@ class ThreadedObjectCache:
         cloud_type,
         bucket,
         path,
-        ttl,
+        ttl=14400,  # Default to 4 hour TTL
         clock=time,
         transformer=None,
         block_until_cached=False,
