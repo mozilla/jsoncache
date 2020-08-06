@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 setup(
     name="mozilla-jsoncache",
     use_scm_version=False,
-    version="0.1.1",
+    version="0.1.2",
     setup_requires=["setuptools_scm", "pytest-runner"],
     tests_require=["pytest"],
     include_package_data=True,
@@ -18,7 +18,7 @@ setup(
     author_email="vng@mozilla.org",
     url="https://github.com/mozilla/jsoncache",
     license="MPL 2.0",
-    install_requires=[],
+    install_requires=["google-cloud-storage", "boto3"],
     classifiers=[
         "Development Status :: 3 - Alpha",
         "Environment :: Web Environment :: Mozilla",
