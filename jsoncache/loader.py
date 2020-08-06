@@ -93,12 +93,14 @@ def s3_json_loader(bucket, path, region_name="us-west-2"):
                 region_name=region_name,
                 retries={"max_attempts": 3},
             )
-            conn = boto3.resource("s3", config=config)
-            payload = conn.Object(bucket, path).get()["Body"].read()
+            s3 = boto3.client("s3", config=config)
 
-            payload = decode_payload(payload, path)
-
-        return payload
+            with io.BytesIO() as file_out:
+                s3.download_fileobj(bucket, path, file_out)
+                file_out.seek(0)
+                payload = file_out.read()
+                payload = decode_payload(payload, path)
+                return payload
     except Exception:
         logger.exception(f"Error loading from s3://{bucket}/{path}")
 
