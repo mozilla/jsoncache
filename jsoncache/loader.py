@@ -162,41 +162,11 @@ class Timer:
         return expired
 
 
-def refresh_thread(clock, ttl, refresh_queue):
-    """
-    Loop forever checking the expiry time and pushing a message into
-    the refresh_queue if a model should be reloaded
-    """
-    t = Timer(clock, ttl)
-    while True:
-        if t.has_expired():
-            logger.debug("Object expired - putting event onto refresh_queue")
-            refresh_queue.put(True)
-        time.sleep(1)
-
-
 def nonblock_dequeue(refresh_queue):
     try:
         return refresh_queue.get(block=False)
     except Empty:
         return False
-
-
-def result_thread(model_loader, refresh_queue, result_queue, transformer):
-    while True:
-        refresh_now = nonblock_dequeue(refresh_queue)
-        if refresh_now is False:
-            logger.debug("Refresh not required")
-            time.sleep(1)
-            continue
-
-        result = model_loader()
-        logger.debug("Model is loaded")
-        if transformer is not None:
-            logger.debug("Transform being applied")
-            result = transformer(result)
-        logger.debug("Final model added to result_queue")
-        result_queue.put(result)
 
 
 class ThreadedObjectCache:
@@ -259,13 +229,13 @@ class ThreadedObjectCache:
         # Note that the refresh thread is daemonized so that the
         # thread dies when the process dies
         self._refresh_thread = threading.Thread(
-            target=refresh_thread,
+            target=self.refresh_thread,
             args=(self._clock, self._ttl, self._refresh_queue),
             daemon=True,
         )
 
         self._result_thread = threading.Thread(
-            target=result_thread,
+            target=self.result_thread,
             args=(
                 self.load_model,
                 self._refresh_queue,
@@ -279,12 +249,17 @@ class ThreadedObjectCache:
             target=self._dequeue_result, args=(), daemon=True
         )
 
+        self._stop = False
+
         self._refresh_thread.start()
         self._result_thread.start()
         self._update_cache_thread.start()
 
         if block_until_cached:
             self.block_until_cached()
+
+    def stop(self):
+        self._stop = True
 
     def block_until_cached(self):
         """
@@ -300,6 +275,8 @@ class ThreadedObjectCache:
 
     def _dequeue_result(self):
         while True:
+            if self._stop:
+                break
             result = nonblock_dequeue(self._result_queue)
             if result is False:
                 logger.debug("No new model for cache")
@@ -311,6 +288,7 @@ class ThreadedObjectCache:
             logger.debug("Writing new model to cache")
             self._cached_result = result
             time.sleep(1)
+        logger.info(f"dequeue thread stopped. thread:{threading.get_ident()}")
 
     def load_model(self):
         """
@@ -321,3 +299,37 @@ class ThreadedObjectCache:
             return s3_json_loader(self._bucket, self._path, self._transformer)
         else:
             return gcs_json_loader(self._bucket, self._path, self._transformer)
+
+    def refresh_thread(self, clock, ttl, refresh_queue):
+        """
+        Loop forever checking the expiry time and pushing a message into
+        the refresh_queue if a model should be reloaded
+        """
+        t = Timer(clock, ttl)
+        while True:
+            if self._stop:
+                break
+            if t.has_expired():
+                logger.debug("Object expired - putting event onto refresh_queue")
+                refresh_queue.put(True)
+            time.sleep(1)
+        logger.info(f"refresh_thread stopped. thread:{threading.get_ident()}")
+
+    def result_thread(self, model_loader, refresh_queue, result_queue, transformer):
+        while True:
+            if self._stop:
+                break
+            refresh_now = nonblock_dequeue(refresh_queue)
+            if refresh_now is False:
+                logger.debug("Refresh not required")
+                time.sleep(1)
+                continue
+
+            result = model_loader()
+            logger.debug("Model is loaded")
+            if transformer is not None:
+                logger.debug("Transform being applied")
+                result = transformer(result)
+            logger.debug("Final model added to result_queue")
+            result_queue.put(result)
+        logger.info(f"result_thread stopped. thread:{threading.get_ident()}")
