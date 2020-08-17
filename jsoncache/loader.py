@@ -6,14 +6,14 @@ import bz2
 from contextlib import contextmanager
 import io
 import json
-import logging
 import os
 import queue
 from queue import Empty
 import re
-import sys
 import time
 import threading
+
+from .log import get_logger
 
 import boto3
 from botocore.client import Config
@@ -35,14 +35,7 @@ CLOUD_TYPES = {
 
 
 # Setup a logger for this module
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
-
-handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+logger = get_logger("jsoncache")
 
 
 @contextmanager
@@ -55,7 +48,7 @@ def context_timer(msg):
         end_load = time.time()
         load_time = end_load - start_load
         msg += f"  Load Time: {load_time} sec"
-        logger.debug(msg)
+        logger.info(msg)
 
 
 def decode_payload(payload, path):
