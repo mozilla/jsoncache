@@ -287,6 +287,8 @@ class ThreadedObjectCache:
         """
         This method is called by the background `result_thread` to
         load data from the cloud
+
+        On error, this method will return None
         """
         if self._cloud_type == CLOUD_TYPES["s3"]:
             return s3_json_loader(self._bucket, self._path, self._transformer)
@@ -319,6 +321,9 @@ class ThreadedObjectCache:
                 continue
 
             result = model_loader()
+            if result is None:
+                # Model loading failed - skip this
+                continue
             logger.debug("Model is loaded")
             if transformer is not None:
                 logger.debug("Transform being applied")
