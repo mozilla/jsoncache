@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 setup(
     name="mozilla-jsoncache",
     use_scm_version=False,
-    version="0.1.5",
+    version="0.1.6",
     setup_requires=["setuptools_scm", "pytest-runner"],
     tests_require=["pytest"],
     include_package_data=True,
