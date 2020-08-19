@@ -192,7 +192,7 @@ class ThreadedObjectCache:
         ttl=14400,  # Default to 4 hour TTL
         clock=time,
         transformer=None,
-        block_until_cached=False,
+        block_until_cached=True,
     ):
 
         self._cloud_type = cloud_type
@@ -216,8 +216,8 @@ class ThreadedObjectCache:
         self._cached_result = None
 
         assert self._cloud_type in CLOUD_TYPES
-        assert BUCKET_RE.match(self._bucket)
-        assert PATH_RE.match(self._path)
+        assert BUCKET_RE.match(self._bucket), "Invalid bucket name"
+        assert PATH_RE.match(self._path), "Invalid path for storage"
 
         # Note that the refresh thread is daemonized so that the
         # thread dies when the process dies
@@ -276,7 +276,10 @@ class ThreadedObjectCache:
                 time.sleep(1)
                 continue
 
-            assert result is not None
+            if result is None:
+                logger.error("Ingnoring None dequeued to clobber cached value.")
+                continue
+
             # We've dequeued a result - clobber the current instance
             logger.debug("Writing new model to cache")
             self._cached_result = result
@@ -322,8 +325,9 @@ class ThreadedObjectCache:
 
             result = model_loader()
             if result is None:
-                # Model loading failed - skip this
+                # TODO: Model loading failed - skip this
                 continue
+
             logger.debug("Model is loaded")
             if transformer is not None:
                 logger.debug("Transform being applied")
