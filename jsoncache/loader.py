@@ -13,7 +13,7 @@ import re
 import time
 import threading
 
-from .log import get_logger
+from jsoncache.log import get_logger
 
 import boto3
 from botocore.client import Config
@@ -34,10 +34,6 @@ CLOUD_TYPES = {
 }
 
 
-# Setup a logger for this module
-logger = get_logger("jsoncache")
-
-
 @contextmanager
 def context_timer(msg):
     start_load = time.time()
@@ -48,7 +44,8 @@ def context_timer(msg):
         end_load = time.time()
         load_time = end_load - start_load
         msg += f"  Load Time: {load_time} sec"
-        logger.info(msg)
+        # Setup a logger for this module
+        get_logger("jsoncache").info(msg)
 
 
 def decode_payload(payload, path):
@@ -95,7 +92,7 @@ def s3_json_loader(bucket, path, region_name="us-west-2"):
                 payload = decode_payload(payload, path)
                 return payload
     except Exception:
-        logger.exception(f"Error loading from s3://{bucket}/{path}")
+        get_logger("jsoncache").exception(f"Error loading from s3://{bucket}/{path}")
 
     return None
 
@@ -122,7 +119,7 @@ def gcs_json_loader(bucket, path):
 
                 return payload
     except Exception:
-        logger.exception(f"Error loading from gcs://{bucket}/{path}")
+        get_logger("jsoncache").exception(f"Error loading from gcs://{bucket}/{path}")
 
     return None
 
@@ -146,7 +143,7 @@ class Timer:
         future = self._start + (self._ttl_incr * self._ttl)
 
         expired = now > future
-        logger.debug(
+        get_logger("jsoncache").debug(
             f"Incr: {self._ttl_incr} Comparing time: {now} > {future} == {expired}"
         )
 
@@ -267,6 +264,7 @@ class ThreadedObjectCache:
         return self._cached_result
 
     def _dequeue_result(self):
+        logger = get_logger("jsoncache")
         while True:
             if self._stop:
                 break
@@ -277,7 +275,7 @@ class ThreadedObjectCache:
                 continue
 
             if result is None:
-                logger.error("Ingnoring None dequeued to clobber cached value.")
+                logger.error("Ignoring None dequeued to clobber cached value.")
                 continue
 
             # We've dequeued a result - clobber the current instance
@@ -303,6 +301,7 @@ class ThreadedObjectCache:
         Loop forever checking the expiry time and pushing a message into
         the refresh_queue if a model should be reloaded
         """
+        logger = get_logger("jsoncache")
         t = Timer(clock, ttl)
         while True:
             if self._stop:
@@ -314,6 +313,7 @@ class ThreadedObjectCache:
         logger.info(f"refresh_thread stopped. thread:{threading.get_ident()}")
 
     def result_thread(self, model_loader, refresh_queue, result_queue, transformer):
+        logger = get_logger("jsoncache")
         while True:
             if self._stop:
                 break
