@@ -33,6 +33,8 @@ CLOUD_TYPES = {
     "gcs": "gcs",
 }
 
+CHUNK_SIZE = 100 * 1000  # 100k byte reads at a time
+
 
 @contextmanager
 def context_timer(msg):
@@ -75,24 +77,39 @@ def s3_json_loader(bucket, path, region_name="us-west-2"):
 
     On any error loading from the path, return None
     """
+    logger = get_logger("jsoncache")
     try:
-        msg = f"Loaded s3://{bucket}/{path}."
+        s3_fullpath = f"s3://{bucket}/{path}"
+        msg = f"Loaded {s3_fullpath}"
         with context_timer(msg):
             config = Config(
                 connect_timeout=10,
                 region_name=region_name,
                 retries={"max_attempts": 3},
             )
-            s3 = boto3.client("s3", config=config)
+            s3 = boto3.resource("s3", config=config)
+
+            bucket = s3.Bucket(bucket)
+            s3_obj = bucket.Object(path).get()
+            s3_stream = s3_obj["Body"]
 
             with io.BytesIO() as file_out:
-                s3.download_fileobj(bucket, path, file_out)
+                bytes_read = 0
+                while True:
+                    chunk = s3_stream.read(CHUNK_SIZE)
+                    bytes_read += len(chunk)
+                    if chunk:
+                        logger.info(f"Read {bytes_read} bytes from {s3_fullpath}")
+                        file_out.write(chunk)
+                    else:
+                        break
+
                 file_out.seek(0)
                 payload = file_out.read()
                 payload = decode_payload(payload, path)
                 return payload
     except Exception:
-        get_logger("jsoncache").exception(f"Error loading from s3://{bucket}/{path}")
+        logger.exception(f"Error loading from s3://{bucket}/{path}")
 
     return None
 
@@ -189,7 +206,7 @@ class ThreadedObjectCache:
         ttl=14400,  # Default to 4 hour TTL
         clock=time,
         transformer=None,
-        block_until_cached=True,
+        block_until_cached=False,
     ):
 
         self._cloud_type = cloud_type
@@ -323,10 +340,16 @@ class ThreadedObjectCache:
                 time.sleep(1)
                 continue
 
-            result = model_loader()
-            if result is None:
-                # TODO: Model loading failed - skip this
-                continue
+            result = None
+            while True:
+                result = model_loader()
+                # It's possible we get some kind of network failure,
+                # just try again immediately
+                if result is not None:
+                    break
+                logger.warn(
+                    f"Retrying download for {self._cloud_type}://{self._bucket}/{self._path}"
+                )
 
             logger.debug("Model is loaded")
             if transformer is not None:
