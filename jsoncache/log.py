@@ -15,12 +15,12 @@ _LOG_CONFIG = {
     },
     "handlers": {
         "console": {
-            "level": "DEBUG",
+            "level": "INFO",
             "class": "logging.StreamHandler",
             "formatter": "json",
         },
     },
-    "loggers": {"srg": {"handlers": ["console"], "level": "DEBUG",},},
+    "loggers": {"srg": {"handlers": ["console"], "level": "INFO",},},
 }
 
 
